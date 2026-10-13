@@ -9,6 +9,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [registering, setRegistering] = useState(false);
   const [registration, setRegistration] = useState(EMPTY_REGISTRATION);
+  const [showRegistrationPassword, setShowRegistrationPassword] = useState(false);
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
   const [view, setView] = useState("home");
@@ -49,6 +50,7 @@ export default function App() {
   async function handleLogin(event) {
     event.preventDefault();
     setError("");
+    setMessage("");
     setLoading(true);
 
     try {
@@ -552,12 +554,19 @@ export default function App() {
           <label>Senha
             <input
               value={registration["pass" + "word"]}
-              onChange={(event) => setRegistration({ ...registration, ["pass" + "word"]: event.target.value })}
-              type={"pass" + "word"}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setRegistration((current) => ({ ...current, ["pass" + "word"]: value }));
+              }}
+              type={showRegistrationPassword ? "text" : "pass" + "word"}
               minLength={6}
               maxLength={100}
               required
             />
+          </label>
+          <label className="filter">
+            <input type="checkbox" checked={showRegistrationPassword} onChange={(event) => setShowRegistrationPassword(event.currentTarget.checked)} />
+            Mostrar senha
           </label>
           {error && <p className="error" role="alert">{error}</p>}
           <button disabled={loading} type="submit">{loading ? "Cadastrando..." : "Criar conta"}</button>
@@ -589,6 +598,7 @@ export default function App() {
           />
         </label>
 
+        {message && <p className="success" role="status">{message}</p>}
         {error && <p className="error">{error}</p>}
 
         <button disabled={loading} type="submit">
