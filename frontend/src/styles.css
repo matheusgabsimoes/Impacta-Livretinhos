@@ -140,6 +140,22 @@ button:disabled {
   gap: 8px;
 }
 
+.filter {
+  align-items: center;
+  display: flex;
+  font-weight: 400;
+  gap: 8px;
+}
+
+.filter input {
+  height: 18px;
+  width: 18px;
+}
+
+.low-stock {
+  background: #fff4df;
+}
+
 .form-section {
   border-top: 1px solid #e7e2d9;
   display: grid;

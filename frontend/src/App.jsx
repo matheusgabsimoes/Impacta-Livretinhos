@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const LOW_STOCK_LIMIT = 5;
 
 export default function App() {
   const [email, setEmail] = useState("");
@@ -17,6 +18,7 @@ export default function App() {
   const [users, setUsers] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
   const [editingBook, setEditingBook] = useState(null);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -79,6 +81,7 @@ export default function App() {
     setBooks([]);
     setEditingUser(null);
     setEditingBook(null);
+    setLowStockOnly(false);
   }
 
   function authHeaders() {
@@ -283,6 +286,11 @@ export default function App() {
     loadBooks();
   }
 
+  const lowStockCount = books.filter((item) => item.quantity <= LOW_STOCK_LIMIT).length;
+  const visibleBooks = lowStockOnly
+    ? books.filter((item) => item.quantity <= LOW_STOCK_LIMIT)
+    : books;
+
   if (user) {
     return (
       <main className="page">
@@ -434,6 +442,11 @@ export default function App() {
           {view === "stock" && (
             <div className="stock">
               <h2>Estoque</h2>
+              <p className="muted">{lowStockCount} livro(s) com {LOW_STOCK_LIMIT} unidades ou menos.</p>
+              <label className="filter">
+                <input type="checkbox" checked={lowStockOnly} onChange={(event) => setLowStockOnly(event.target.checked)} />
+                Mostrar apenas estoque baixo
+              </label>
               {editingBook && (
                 <form className="form-section" onSubmit={saveBookEdit}>
                   <h2>Editar livro</h2>
@@ -455,8 +468,8 @@ export default function App() {
                   </div>
                 </form>
               )}
-              {books.length === 0 ? (
-                <p className="muted">Nenhum livro cadastrado ainda.</p>
+              {visibleBooks.length === 0 ? (
+                <p className="muted">Nenhum livro nesta lista.</p>
               ) : (
                 <div className="table-wrap">
                   <table>
@@ -470,12 +483,12 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {books.map((item) => (
-                        <tr key={item.id}>
+                      {visibleBooks.map((item) => (
+                        <tr key={item.id} className={item.quantity <= LOW_STOCK_LIMIT ? "low-stock" : ""}>
                           <td>{item.title}</td>
                           <td>{item.theme}</td>
                           <td>R$ {Number(item.price).toFixed(2)}</td>
-                          <td>{item.quantity}</td>
+                          <td>{item.quantity}{item.quantity <= LOW_STOCK_LIMIT ? " ⚠" : ""}</td>
                           <td><div className="row-actions">
                             <button className="secondary small" onClick={() => setEditingBook(item)}>Editar</button>
                             <button className="danger small" onClick={() => deleteBook(item)}>Excluir</button>
