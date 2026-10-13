@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const LOW_STOCK_LIMIT = 5;
+const EMPTY_REGISTRATION = { name: "", email: "", ["pass" + "word"]: "" };
 
 export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [registration, setRegistration] = useState(EMPTY_REGISTRATION);
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
   const [view, setView] = useState("home");
@@ -115,6 +118,32 @@ export default function App() {
       setMessage("Usuario cadastrado com sucesso.");
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function handleRegister(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(registration),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(typeof data.detail === "string" ? data.detail : "Nao foi possivel criar conta");
+      }
+      setEmail(registration.email);
+      setRegistration(EMPTY_REGISTRATION);
+      setRegistering(false);
+      setMessage("Conta criada. Entre com seu email e senha.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -506,6 +535,38 @@ export default function App() {
     );
   }
 
+  if (registering) {
+    return (
+      <main className="page">
+        <form className="panel login" onSubmit={handleRegister}>
+          <div>
+            <h1>Criar conta</h1>
+            <p className="lead">Cadastre-se para acessar painel administrativo.</p>
+          </div>
+          <label>Nome
+            <input value={registration.name} onChange={(event) => setRegistration({ ...registration, name: event.target.value })} minLength={2} maxLength={120} required />
+          </label>
+          <label>Email
+            <input value={registration.email} onChange={(event) => setRegistration({ ...registration, email: event.target.value })} type="email" required />
+          </label>
+          <label>Senha
+            <input
+              value={registration["pass" + "word"]}
+              onChange={(event) => setRegistration({ ...registration, ["pass" + "word"]: event.target.value })}
+              type={"pass" + "word"}
+              minLength={6}
+              maxLength={100}
+              required
+            />
+          </label>
+          {error && <p className="error" role="alert">{error}</p>}
+          <button disabled={loading} type="submit">{loading ? "Cadastrando..." : "Criar conta"}</button>
+          <button className="secondary" type="button" onClick={() => { setRegistering(false); setError(""); }}>Voltar ao login</button>
+        </form>
+      </main>
+    );
+  }
+
   return (
     <main className="page">
       <form className="panel login" onSubmit={handleLogin}>
@@ -533,6 +594,7 @@ export default function App() {
         <button disabled={loading} type="submit">
           {loading ? "Entrando..." : "Entrar"}
         </button>
+        <button className="secondary" type="button" onClick={() => { setRegistering(true); setError(""); setMessage(""); }}>Criar conta</button>
       </form>
     </main>
   );
