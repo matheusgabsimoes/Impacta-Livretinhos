@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const LOW_STOCK_LIMIT = 5;
+const ITEMS_PER_PAGE = 10;
 const EMPTY_USER = { name: "", email: "", password: "" };
 const EMPTY_BOOK = { title: "", theme: "", price: "", quantity: "" };
 
@@ -9,6 +10,18 @@ function errorMessage(detail, fallback) {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) return detail.map((item) => item.msg).join("; ");
   return fallback;
+}
+
+function Pagination({ page, pageCount, onPageChange }) {
+  if (pageCount <= 1) return null;
+
+  return (
+    <nav className="pagination" aria-label="Paginação">
+      <button disabled={page === 1} type="button" onClick={() => onPageChange(page - 1)}>Anterior</button>
+      <span>Página {page} de {pageCount}</span>
+      <button disabled={page === pageCount} type="button" onClick={() => onPageChange(page + 1)}>Próxima</button>
+    </nav>
+  );
 }
 
 export default function App() {
@@ -29,6 +42,8 @@ export default function App() {
   const [users, setUsers] = useState([]);
   const [books, setBooks] = useState([]);
   const [lowStockOnly, setLowStockOnly] = useState(false);
+  const [userPage, setUserPage] = useState(1);
+  const [bookPage, setBookPage] = useState(1);
 
   useEffect(() => {
     if (!token) {
@@ -38,7 +53,7 @@ export default function App() {
 
     fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => {
-        if (!response.ok) throw new Error("Sessao expirada");
+        if (!response.ok) throw new Error("Sessão expirada");
         return response.json();
       })
       .then(setUser)
@@ -61,7 +76,7 @@ export default function App() {
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(errorMessage(data.detail, "Nao foi possivel concluir a operacao"));
+      throw new Error(errorMessage(data.detail, "Não foi possível concluir a operação"));
     }
     return response.status === 204 ? null : response.json();
   }
@@ -76,7 +91,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      if (!response.ok) throw new Error("Email ou senha invalidos");
+      if (!response.ok) throw new Error("Email ou senha inválidos");
       const data = await response.json();
       localStorage.setItem("token", data.access_token);
       setToken(data.access_token);
@@ -100,7 +115,7 @@ export default function App() {
       });
       if (!response.ok) {
         const data = await response.json().catch(() => ({}));
-        throw new Error(errorMessage(data.detail, "Nao foi possivel criar a conta"));
+        throw new Error(errorMessage(data.detail, "Não foi possível criar a conta"));
       }
       setEmail(registration.email);
       setRegistration(EMPTY_USER);
@@ -119,6 +134,8 @@ export default function App() {
     setUser(null);
     setUsers([]);
     setBooks([]);
+    setUserPage(1);
+    setBookPage(1);
     setView("home");
     clearNotices();
   }
@@ -126,6 +143,7 @@ export default function App() {
   async function openUsers() {
     clearNotices();
     setView("users");
+    setUserPage(1);
     try {
       setUsers(await apiRequest("/users"));
     } catch (err) {
@@ -136,6 +154,7 @@ export default function App() {
   async function openBooks() {
     clearNotices();
     setView("books");
+    setBookPage(1);
     try {
       setBooks(await apiRequest("/books"));
     } catch (err) {
@@ -182,8 +201,9 @@ export default function App() {
       setUsers(isEditing
         ? users.map((item) => item.id === updated.id ? updated : item)
         : [...users, updated]);
+      setUserPage(1);
       setView("users");
-      setMessage(isEditing ? "Usuario atualizado." : "Usuario cadastrado.");
+      setMessage(isEditing ? "Usuário atualizado." : "Usuário cadastrado.");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -192,12 +212,13 @@ export default function App() {
   }
 
   async function deleteUser(item) {
-    if (!window.confirm(`Excluir usuario ${item.name}?`)) return;
+    if (!window.confirm(`Excluir usuário ${item.name}?`)) return;
     clearNotices();
     try {
       await apiRequest(`/users/${item.id}`, { method: "DELETE" });
       setUsers(users.filter((entry) => entry.id !== item.id));
-      setMessage("Usuario excluido.");
+      setUserPage(1);
+      setMessage("Usuário excluído.");
     } catch (err) {
       setError(err.message);
     }
@@ -221,6 +242,7 @@ export default function App() {
       setBooks(isEditing
         ? books.map((item) => item.id === saved.id ? saved : item)
         : [...books, saved]);
+      setBookPage(1);
       setView("books");
       setMessage(isEditing ? "Livro atualizado." : "Livro adicionado ao estoque.");
     } catch (err) {
@@ -236,7 +258,8 @@ export default function App() {
     try {
       await apiRequest(`/books/${item.id}`, { method: "DELETE" });
       setBooks(books.filter((entry) => entry.id !== item.id));
-      setMessage("Livro excluido.");
+      setBookPage(1);
+      setMessage("Livro excluído.");
     } catch (err) {
       setError(err.message);
     }
@@ -285,7 +308,7 @@ export default function App() {
       <main className="page">
         <form className="panel login" onSubmit={handleLogin}>
           <div>
-            <h1>Admin Livraria</h1>
+            <h1>Livretinhos</h1>
             <p className="lead">Entre com email e senha para acessar o painel.</p>
           </div>
           <label>Email
@@ -307,36 +330,42 @@ export default function App() {
   const visibleBooks = lowStockOnly
     ? books.filter((item) => item.quantity <= LOW_STOCK_LIMIT)
     : books;
+  const userPageCount = Math.max(1, Math.ceil(users.length / ITEMS_PER_PAGE));
+  const bookPageCount = Math.max(1, Math.ceil(visibleBooks.length / ITEMS_PER_PAGE));
+  const pagedUsers = users.slice((userPage - 1) * ITEMS_PER_PAGE, userPage * ITEMS_PER_PAGE);
+  const pagedBooks = visibleBooks.slice((bookPage - 1) * ITEMS_PER_PAGE, bookPage * ITEMS_PER_PAGE);
 
   return (
     <main className="page">
-      <section className="panel dashboard">
-        <header className="panel-header">
-          <div>
-            <p className="eyebrow">Painel administrativo</p>
-            <h1>Admin Livraria</h1>
-            <p className="lead">Bem-vindo ao painel administrativo, {user.name}.</p>
-          </div>
-          <button className="secondary" onClick={logout}>Sair</button>
-        </header>
+        <section className="panel dashboard">
+          <aside className="sidebar">
+            <div>
+              <p className="eyebrow">Painel administrativo</p>
+              <h1>Livretinhos</h1>
+            </div>
+            <nav className="sidebar-nav" aria-label="Navegação administrativa">
+              <button className={view === "home" ? "active" : ""} type="button" onClick={() => { clearNotices(); setView("home"); }}>Início</button>
+              <button className={view === "users" || view === "user-form" ? "active" : ""} type="button" onClick={openUsers}>Usuários</button>
+              <button className={view === "books" || view === "book-form" ? "active" : ""} type="button" onClick={openBooks}>Estoque</button>
+            </nav>
+            <button className="secondary logout" type="button" onClick={logout}>Sair</button>
+          </aside>
 
-        <nav className="actions" aria-label="Acoes administrativas">
-          <button onClick={openUsers}>Usuarios</button>
-          <button onClick={openBooks}>Estoque</button>
-          <button onClick={() => openUserForm()}>Cadastrar usuario</button>
-          <button onClick={() => openBookForm()}>Adicionar livro</button>
-        </nav>
+          <div className="dashboard-content">
+            <header className="panel-header">
+              <p className="lead">Bem-vindo ao painel administrativo, {user.name}.</p>
+            </header>
 
-        {message && <p className="success" role="status">{message}</p>}
-        {error && <p className="error" role="alert">{error}</p>}
+            {message && <p className="success" role="status">{message}</p>}
+            {error && <p className="error" role="alert">{error}</p>}
 
-        {view === "home" && (
-          <p className="muted">Gerencie usuarios, livros e acompanhe estoque baixo.</p>
-        )}
+            {view === "home" && (
+              <p className="muted">Gerencie usuários, livros e acompanhe estoque baixo.</p>
+            )}
 
-        {view === "user-form" && (
-          <form className="form-section" onSubmit={saveUser}>
-            <h2>{editingId === null ? "Cadastrar usuario" : "Editar usuario"}</h2>
+            {view === "user-form" && (
+              <form className="form-section" onSubmit={saveUser}>
+                <h2>{editingId === null ? "Cadastrar usuário" : "Editar usuário"}</h2>
             <label>Nome
               <input value={userForm.name} onChange={(event) => setUserForm({ ...userForm, name: event.target.value })} minLength={2} maxLength={120} required />
             </label>
@@ -348,23 +377,23 @@ export default function App() {
                 <input value={userForm.password} onChange={(event) => setUserForm({ ...userForm, password: event.target.value })} type="password" minLength={6} maxLength={100} required />
               </label>
             )}
-            <div className="row-actions">
-              <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar usuario"}</button>
-              <button className="secondary" type="button" onClick={openUsers}>Cancelar</button>
-            </div>
-          </form>
+              <div className="row-actions">
+                <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar usuário"}</button>
+                <button className="secondary" type="button" onClick={openUsers}>Cancelar</button>
+              </div>
+            </form>
         )}
 
         {view === "book-form" && (
-          <form className="form-section" onSubmit={saveBook}>
-            <h2>{editingId === null ? "Adicionar livro" : "Editar livro"}</h2>
-            <label>Titulo
+            <form className="form-section" onSubmit={saveBook}>
+              <h2>{editingId === null ? "Adicionar livro" : "Editar livro"}</h2>
+              <label>Título
               <input value={bookForm.title} onChange={(event) => setBookForm({ ...bookForm, title: event.target.value })} minLength={2} maxLength={160} required />
             </label>
             <label>Tema
               <input value={bookForm.theme} onChange={(event) => setBookForm({ ...bookForm, theme: event.target.value })} minLength={2} maxLength={120} required />
             </label>
-            <label>Preco
+              <label>Preço
               <input value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} type="number" min="0.01" step="0.01" required />
             </label>
             <label>Quantidade
@@ -377,16 +406,19 @@ export default function App() {
           </form>
         )}
 
-        {view === "users" && (
-          <div className="stock">
-            <h2>Usuarios</h2>
-            {users.length === 0 ? <p className="muted">Nenhum usuario cadastrado.</p> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Nome</th><th>Email</th><th>Acoes</th></tr></thead>
-                  <tbody>{users.map((item) => (
+            {view === "users" && (
+              <div className="stock">
+                <div className="section-header">
+                  <h2>Usuários</h2>
+                  <button type="button" onClick={() => openUserForm()}>Cadastrar usuário</button>
+                </div>
+                {users.length === 0 ? <p className="muted">Nenhum usuário cadastrado.</p> : (
+               <div className="table-wrap">
+                 <table>
+                  <thead><tr><th>Nome</th><th>Email</th><th>Ações</th></tr></thead>
+                  <tbody>{pagedUsers.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.name}{item.id === user.id ? " (voce)" : ""}</td>
+                      <td>{item.name}{item.id === user.id ? " (você)" : ""}</td>
                       <td>{item.email}</td>
                       <td><div className="row-actions">
                         <button className="secondary small" onClick={() => openUserForm(item)}>Editar</button>
@@ -397,19 +429,23 @@ export default function App() {
                 </table>
               </div>
             )}
+                <Pagination page={userPage} pageCount={userPageCount} onPageChange={setUserPage} />
           </div>
         )}
 
         {view === "books" && (
           <div className="stock">
-            <h2>Estoque</h2>
+            <div className="section-header">
+              <h2>Estoque</h2>
+              <button type="button" onClick={() => openBookForm()}>Adicionar livro</button>
+            </div>
             <p className="muted">{lowStockCount} livro(s) com {LOW_STOCK_LIMIT} unidades ou menos.</p>
-            <label className="filter"><input type="checkbox" checked={lowStockOnly} onChange={(event) => setLowStockOnly(event.target.checked)} /> Mostrar apenas estoque baixo</label>
+            <label className="filter"><input type="checkbox" checked={lowStockOnly} onChange={(event) => { setLowStockOnly(event.target.checked); setBookPage(1); }} /> Mostrar apenas estoque baixo</label>
             {visibleBooks.length === 0 ? <p className="muted">Nenhum livro nesta lista.</p> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Titulo</th><th>Tema</th><th>Preco</th><th>Qtd.</th><th>Acoes</th></tr></thead>
-                  <tbody>{visibleBooks.map((item) => (
+                  <thead><tr><th>Título</th><th>Tema</th><th>Preço</th><th>Qtd.</th><th>Ações</th></tr></thead>
+                  <tbody>{pagedBooks.map((item) => (
                     <tr key={item.id} className={item.quantity <= LOW_STOCK_LIMIT ? "low-stock" : ""}>
                       <td>{item.title}</td>
                       <td>{item.theme}</td>
@@ -424,9 +460,11 @@ export default function App() {
                 </table>
               </div>
             )}
+            <Pagination page={bookPage} pageCount={bookPageCount} onPageChange={setBookPage} />
           </div>
-        )}
-      </section>
+            )}
+          </div>
+        </section>
     </main>
   );
 }
