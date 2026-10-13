@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function App() {
-  const [email, setEmail] = useState("admin@livraria.com");
-  const [password, setPassword] = useState("123456");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
   const [view, setView] = useState("home");
@@ -14,6 +14,8 @@ export default function App() {
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
   const [book, setBook] = useState({ title: "", theme: "", price: "", quantity: "" });
   const [books, setBooks] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [editingUser, setEditingUser] = useState(null);
 
   useEffect(() => {
     if (!token) {
@@ -57,6 +59,7 @@ export default function App() {
       const data = await response.json();
       localStorage.setItem("token", data.access_token);
       setToken(data.access_token);
+      setPassword("");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -71,6 +74,9 @@ export default function App() {
     setView("home");
     setMessage("");
     setError("");
+    setUsers([]);
+    setBooks([]);
+    setEditingUser(null);
   }
 
   function authHeaders() {
@@ -97,8 +103,74 @@ export default function App() {
         throw new Error(data.detail || "Nao foi possivel cadastrar usuario");
       }
 
+      const created = await response.json();
+      setUsers((items) => [...items, created]);
       setNewUser({ name: "", email: "", password: "" });
+      setView("users");
       setMessage("Usuario cadastrado com sucesso.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function loadUsers() {
+    setError("");
+    setMessage("");
+    setEditingUser(null);
+    setView("users");
+    try {
+      const response = await fetch(`${API_URL}/users`, { headers: authHeaders() });
+      if (!response.ok) throw new Error("Nao foi possivel carregar usuarios");
+      setUsers(await response.json());
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function saveUserEdit(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/users/${editingUser.id}`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ name: editingUser.name, email: editingUser.email }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || "Nao foi possivel atualizar usuario");
+      }
+      const updated = await response.json();
+      if (updated.id === user.id && updated.email !== user.email) {
+        logout();
+        setMessage("Email atualizado. Entre novamente com novo email.");
+        return;
+      }
+      if (updated.id === user.id) setUser(updated);
+      setUsers((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setEditingUser(null);
+      setMessage("Usuario atualizado.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteUser(item) {
+    if (!window.confirm(`Excluir usuario ${item.name}?`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/users/${item.id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || "Nao foi possivel excluir usuario");
+      }
+      setUsers((items) => items.filter((entry) => entry.id !== item.id));
+      setMessage("Usuario excluido.");
     } catch (err) {
       setError(err.message);
     }
@@ -177,6 +249,7 @@ export default function App() {
 
           <nav className="actions" aria-label="Acoes administrativas">
             <button onClick={() => setView("user")}>Cadastrar usuario</button>
+            <button onClick={loadUsers}>Usuarios</button>
             <button onClick={() => setView("book")}>Adicionar livro</button>
             <button onClick={openStockView}>Verificar estoque</button>
           </nav>
@@ -222,6 +295,43 @@ export default function App() {
               </label>
               <button type="submit">Salvar usuario</button>
             </form>
+          )}
+
+          {view === "users" && (
+            <div className="stock">
+              <h2>Usuarios</h2>
+              {editingUser && (
+                <form className="form-section" onSubmit={saveUserEdit}>
+                  <label>Nome
+                    <input value={editingUser.name} onChange={(event) => setEditingUser({ ...editingUser, name: event.target.value })} minLength={2} maxLength={120} required />
+                  </label>
+                  <label>Email
+                    <input value={editingUser.email} onChange={(event) => setEditingUser({ ...editingUser, email: event.target.value })} type="email" required />
+                  </label>
+                  <div className="row-actions">
+                    <button type="submit">Salvar alteracoes</button>
+                    <button className="secondary" type="button" onClick={() => setEditingUser(null)}>Cancelar</button>
+                  </div>
+                </form>
+              )}
+              {users.length === 0 ? <p className="muted">Nenhum usuario cadastrado.</p> : (
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Nome</th><th>Email</th><th>Acoes</th></tr></thead>
+                    <tbody>{users.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.name}{item.id === user.id ? " (voce)" : ""}</td>
+                        <td>{item.email}</td>
+                        <td><div className="row-actions">
+                          <button className="secondary small" onClick={() => setEditingUser(item)}>Editar</button>
+                          {item.id !== user.id && <button className="danger small" onClick={() => deleteUser(item)}>Excluir</button>}
+                        </div></td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           )}
 
           {view === "book" && (
