@@ -2,13 +2,20 @@ import { useEffect, useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const LOW_STOCK_LIMIT = 5;
-const EMPTY_REGISTRATION = { name: "", email: "", ["pass" + "word"]: "" };
+const EMPTY_USER = { name: "", email: "", password: "" };
+const EMPTY_BOOK = { title: "", theme: "", price: "", quantity: "" };
+
+function errorMessage(detail, fallback) {
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) return detail.map((item) => item.msg).join("; ");
+  return fallback;
+}
 
 export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [registering, setRegistering] = useState(false);
-  const [registration, setRegistration] = useState(EMPTY_REGISTRATION);
+  const [registration, setRegistration] = useState(EMPTY_USER);
   const [showRegistrationPassword, setShowRegistrationPassword] = useState(false);
   const [token, setToken] = useState(localStorage.getItem("token") || "");
   const [user, setUser] = useState(null);
@@ -16,12 +23,11 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
-  const [book, setBook] = useState({ title: "", theme: "", price: "", quantity: "" });
-  const [books, setBooks] = useState([]);
+  const [userForm, setUserForm] = useState(EMPTY_USER);
+  const [bookForm, setBookForm] = useState(EMPTY_BOOK);
+  const [editingId, setEditingId] = useState(null);
   const [users, setUsers] = useState([]);
-  const [editingUser, setEditingUser] = useState(null);
-  const [editingBook, setEditingBook] = useState(null);
+  const [books, setBooks] = useState([]);
   const [lowStockOnly, setLowStockOnly] = useState(false);
 
   useEffect(() => {
@@ -30,13 +36,9 @@ export default function App() {
       return;
     }
 
-    fetch(`${API_URL}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => {
-        if (!response.ok) {
-          throw new Error("Sessao expirada");
-        }
+        if (!response.ok) throw new Error("Sessao expirada");
         return response.json();
       })
       .then(setUser)
@@ -47,23 +49,34 @@ export default function App() {
       });
   }, [token]);
 
-  async function handleLogin(event) {
-    event.preventDefault();
+  function clearNotices() {
     setError("");
     setMessage("");
-    setLoading(true);
+  }
 
+  async function apiRequest(path, options = {}) {
+    const response = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(errorMessage(data.detail, "Nao foi possivel concluir a operacao"));
+    }
+    return response.status === 204 ? null : response.json();
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    clearNotices();
+    setLoading(true);
     try {
       const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-
-      if (!response.ok) {
-        throw new Error("Email ou senha invalidos");
-      }
-
+      if (!response.ok) throw new Error("Email ou senha invalidos");
       const data = await response.json();
       localStorage.setItem("token", data.access_token);
       setToken(data.access_token);
@@ -75,58 +88,9 @@ export default function App() {
     }
   }
 
-  function logout() {
-    localStorage.removeItem("token");
-    setToken("");
-    setUser(null);
-    setView("home");
-    setMessage("");
-    setError("");
-    setUsers([]);
-    setBooks([]);
-    setEditingUser(null);
-    setEditingBook(null);
-    setLowStockOnly(false);
-  }
-
-  function authHeaders() {
-    return {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    };
-  }
-
-  async function handleCreateUser(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-
-    try {
-      const response = await fetch(`${API_URL}/users`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(newUser),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel cadastrar usuario");
-      }
-
-      const created = await response.json();
-      setUsers((items) => [...items, created]);
-      setNewUser({ name: "", email: "", password: "" });
-      setView("users");
-      setMessage("Usuario cadastrado com sucesso.");
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function handleRegister(event) {
     event.preventDefault();
-    setError("");
-    setMessage("");
+    clearNotices();
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/auth/register`, {
@@ -135,11 +99,11 @@ export default function App() {
         body: JSON.stringify(registration),
       });
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(typeof data.detail === "string" ? data.detail : "Nao foi possivel criar conta");
+        const data = await response.json().catch(() => ({}));
+        throw new Error(errorMessage(data.detail, "Nao foi possivel criar a conta"));
       }
       setEmail(registration.email);
-      setRegistration(EMPTY_REGISTRATION);
+      setRegistration(EMPTY_USER);
       setRegistering(false);
       setMessage("Conta criada. Entre com seu email e senha.");
     } catch (err) {
@@ -149,172 +113,194 @@ export default function App() {
     }
   }
 
-  async function loadUsers() {
-    setError("");
-    setMessage("");
-    setEditingUser(null);
+  function logout() {
+    localStorage.removeItem("token");
+    setToken("");
+    setUser(null);
+    setUsers([]);
+    setBooks([]);
+    setView("home");
+    clearNotices();
+  }
+
+  async function openUsers() {
+    clearNotices();
     setView("users");
     try {
-      const response = await fetch(`${API_URL}/users`, { headers: authHeaders() });
-      if (!response.ok) throw new Error("Nao foi possivel carregar usuarios");
-      setUsers(await response.json());
+      setUsers(await apiRequest("/users"));
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function saveUserEdit(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
+  async function openBooks() {
+    clearNotices();
+    setView("books");
     try {
-      const response = await fetch(`${API_URL}/users/${editingUser.id}`, {
-        method: "PUT",
-        headers: authHeaders(),
-        body: JSON.stringify({ name: editingUser.name, email: editingUser.email }),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel atualizar usuario");
-      }
-      const updated = await response.json();
-      if (updated.id === user.id && updated.email !== user.email) {
-        logout();
-        setMessage("Email atualizado. Entre novamente com novo email.");
-        return;
-      }
-      if (updated.id === user.id) setUser(updated);
-      setUsers((items) => items.map((item) => item.id === updated.id ? updated : item));
-      setEditingUser(null);
-      setMessage("Usuario atualizado.");
+      setBooks(await apiRequest("/books"));
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  function openUserForm(item = null) {
+    clearNotices();
+    setEditingId(item?.id ?? null);
+    setUserForm(item ? { name: item.name, email: item.email, password: "" } : EMPTY_USER);
+    setView("user-form");
+  }
+
+  function openBookForm(item = null) {
+    clearNotices();
+    setEditingId(item?.id ?? null);
+    setBookForm(item
+      ? { title: item.title, theme: item.theme, price: String(item.price), quantity: String(item.quantity) }
+      : EMPTY_BOOK);
+    setView("book-form");
+  }
+
+  async function saveUser(event) {
+    event.preventDefault();
+    clearNotices();
+    setLoading(true);
+    try {
+      const isEditing = editingId !== null;
+      const updated = await apiRequest(isEditing ? `/users/${editingId}` : "/users", {
+        method: isEditing ? "PUT" : "POST",
+        body: JSON.stringify(isEditing
+          ? { name: userForm.name, email: userForm.email }
+          : userForm),
+      });
+      if (isEditing && editingId === user.id) {
+        if (updated.email !== user.email) {
+          logout();
+          setMessage("Email atualizado. Entre novamente com o novo email.");
+          return;
+        }
+        setUser(updated);
+      }
+      setUsers(isEditing
+        ? users.map((item) => item.id === updated.id ? updated : item)
+        : [...users, updated]);
+      setView("users");
+      setMessage(isEditing ? "Usuario atualizado." : "Usuario cadastrado.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function deleteUser(item) {
     if (!window.confirm(`Excluir usuario ${item.name}?`)) return;
-    setError("");
-    setMessage("");
+    clearNotices();
     try {
-      const response = await fetch(`${API_URL}/users/${item.id}`, {
-        method: "DELETE",
-        headers: authHeaders(),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel excluir usuario");
-      }
-      setUsers((items) => items.filter((entry) => entry.id !== item.id));
+      await apiRequest(`/users/${item.id}`, { method: "DELETE" });
+      setUsers(users.filter((entry) => entry.id !== item.id));
       setMessage("Usuario excluido.");
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function handleCreateBook(event) {
+  async function saveBook(event) {
     event.preventDefault();
-    setError("");
-    setMessage("");
-
+    clearNotices();
+    setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/books`, {
-        method: "POST",
-        headers: authHeaders(),
+      const isEditing = editingId !== null;
+      const saved = await apiRequest(isEditing ? `/books/${editingId}` : "/books", {
+        method: isEditing ? "PUT" : "POST",
         body: JSON.stringify({
-          title: book.title,
-          theme: book.theme,
-          price: Number(book.price),
-          quantity: Number(book.quantity),
+          title: bookForm.title,
+          theme: bookForm.theme,
+          price: Number(bookForm.price),
+          quantity: Number(bookForm.quantity),
         }),
       });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel cadastrar livro");
-      }
-
-      setBook({ title: "", theme: "", price: "", quantity: "" });
-      setView("stock");
-      await loadBooks();
-      setMessage("Livro adicionado ao estoque.");
+      setBooks(isEditing
+        ? books.map((item) => item.id === saved.id ? saved : item)
+        : [...books, saved]);
+      setView("books");
+      setMessage(isEditing ? "Livro atualizado." : "Livro adicionado ao estoque.");
     } catch (err) {
       setError(err.message);
-    }
-  }
-
-  async function saveBookEdit(event) {
-    event.preventDefault();
-    setError("");
-    setMessage("");
-    try {
-      const response = await fetch(`${API_URL}/books/${editingBook.id}`, {
-        method: "PUT",
-        headers: authHeaders(),
-        body: JSON.stringify({
-          title: editingBook.title,
-          theme: editingBook.theme,
-          price: Number(editingBook.price),
-          quantity: Number(editingBook.quantity),
-        }),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel atualizar livro");
-      }
-      const updated = await response.json();
-      setBooks((items) => items.map((item) => item.id === updated.id ? updated : item));
-      setEditingBook(null);
-      setMessage("Livro atualizado.");
-    } catch (err) {
-      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function deleteBook(item) {
     if (!window.confirm(`Excluir livro ${item.title}?`)) return;
-    setError("");
-    setMessage("");
+    clearNotices();
     try {
-      const response = await fetch(`${API_URL}/books/${item.id}`, {
-        method: "DELETE",
-        headers: authHeaders(),
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || "Nao foi possivel excluir livro");
-      }
-      setBooks((items) => items.filter((entry) => entry.id !== item.id));
+      await apiRequest(`/books/${item.id}`, { method: "DELETE" });
+      setBooks(books.filter((entry) => entry.id !== item.id));
       setMessage("Livro excluido.");
     } catch (err) {
       setError(err.message);
     }
   }
 
-  async function loadBooks() {
-    setError("");
-
-    try {
-      const response = await fetch(`${API_URL}/books`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error("Nao foi possivel carregar o estoque");
-      }
-
-      const data = await response.json();
-      setBooks(data);
-    } catch (err) {
-      setError(err.message);
+  if (!user) {
+    if (registering) {
+      return (
+        <main className="page">
+          <form className="panel login" onSubmit={handleRegister}>
+            <div>
+              <h1>Criar conta</h1>
+              <p className="lead">Cadastre-se para acessar o painel administrativo.</p>
+            </div>
+            <label>Nome
+              <input value={registration.name} onChange={(event) => setRegistration({ ...registration, name: event.target.value })} minLength={2} maxLength={120} required />
+            </label>
+            <label>Email
+              <input value={registration.email} onChange={(event) => setRegistration({ ...registration, email: event.target.value })} type="email" required />
+            </label>
+            <label>Senha
+              <input
+                value={registration["pass" + "word"]}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setRegistration((previous) => ({ ...previous, ["pass" + "word"]: value }));
+                }}
+                type={showRegistrationPassword ? "text" : "pass" + "word"}
+                minLength={6}
+                maxLength={100}
+                required
+              />
+            </label>
+            <label className="filter">
+              <input type="checkbox" checked={showRegistrationPassword} onChange={(event) => setShowRegistrationPassword(event.currentTarget.checked)} />
+              Mostrar senha
+            </label>
+            {error && <p className="error" role="alert">{error}</p>}
+            <button disabled={loading} type="submit">{loading ? "Cadastrando..." : "Criar conta"}</button>
+            <button className="secondary" type="button" onClick={() => { setRegistering(false); clearNotices(); }}>Voltar ao login</button>
+          </form>
+        </main>
+      );
     }
-  }
-
-  function openStockView() {
-    setMessage("");
-    setEditingBook(null);
-    setView("stock");
-    loadBooks();
+    return (
+      <main className="page">
+        <form className="panel login" onSubmit={handleLogin}>
+          <div>
+            <h1>Admin Livraria</h1>
+            <p className="lead">Entre com email e senha para acessar o painel.</p>
+          </div>
+          <label>Email
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+          </label>
+          <label>Senha
+            <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" required />
+          </label>
+          {message && <p className="success">{message}</p>}
+          {error && <p className="error">{error}</p>}
+          <button disabled={loading} type="submit">{loading ? "Entrando..." : "Entrar"}</button>
+          <button className="secondary" type="button" onClick={() => { setRegistering(true); clearNotices(); }}>Criar conta</button>
+        </form>
+      </main>
+    );
   }
 
   const lowStockCount = books.filter((item) => item.quantity <= LOW_STOCK_LIMIT).length;
@@ -322,290 +308,125 @@ export default function App() {
     ? books.filter((item) => item.quantity <= LOW_STOCK_LIMIT)
     : books;
 
-  if (user) {
-    return (
-      <main className="page">
-        <section className="panel dashboard">
-          <header className="panel-header">
-            <div>
-              <p className="eyebrow">Painel administrativo</p>
-              <h1>Admin Livraria</h1>
-              <p className="lead">Bem-vindo ao painel administrativo, {user.name}.</p>
-            </div>
-
-            <button className="secondary" onClick={logout}>
-              Sair
-            </button>
-          </header>
-
-          <nav className="actions" aria-label="Acoes administrativas">
-            <button onClick={() => setView("user")}>Cadastrar usuario</button>
-            <button onClick={loadUsers}>Usuarios</button>
-            <button onClick={() => setView("book")}>Adicionar livro</button>
-            <button onClick={openStockView}>Verificar estoque</button>
-          </nav>
-
-          {message && <p className="success">{message}</p>}
-          {error && <p className="error">{error}</p>}
-
-          {view === "home" && (
-            <p className="muted">
-              Escolha uma acao para cadastrar usuarios, adicionar livros ou consultar o estoque.
-            </p>
-          )}
-
-          {view === "user" && (
-            <form className="form-section" onSubmit={handleCreateUser}>
-              <h2>Cadastrar usuario</h2>
-              <label>
-                Nome
-                <input
-                  value={newUser.name}
-                  onChange={(event) => setNewUser({ ...newUser, name: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  value={newUser.email}
-                  onChange={(event) => setNewUser({ ...newUser, email: event.target.value })}
-                  required
-                  type="email"
-                />
-              </label>
-              <label>
-                Senha
-                <input
-                  value={newUser.password}
-                  onChange={(event) => setNewUser({ ...newUser, password: event.target.value })}
-                  required
-                  type="password"
-                  minLength={6}
-                />
-              </label>
-              <button type="submit">Salvar usuario</button>
-            </form>
-          )}
-
-          {view === "users" && (
-            <div className="stock">
-              <h2>Usuarios</h2>
-              {editingUser && (
-                <form className="form-section" onSubmit={saveUserEdit}>
-                  <label>Nome
-                    <input value={editingUser.name} onChange={(event) => setEditingUser({ ...editingUser, name: event.target.value })} minLength={2} maxLength={120} required />
-                  </label>
-                  <label>Email
-                    <input value={editingUser.email} onChange={(event) => setEditingUser({ ...editingUser, email: event.target.value })} type="email" required />
-                  </label>
-                  <div className="row-actions">
-                    <button type="submit">Salvar alteracoes</button>
-                    <button className="secondary" type="button" onClick={() => setEditingUser(null)}>Cancelar</button>
-                  </div>
-                </form>
-              )}
-              {users.length === 0 ? <p className="muted">Nenhum usuario cadastrado.</p> : (
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Nome</th><th>Email</th><th>Acoes</th></tr></thead>
-                    <tbody>{users.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.name}{item.id === user.id ? " (voce)" : ""}</td>
-                        <td>{item.email}</td>
-                        <td><div className="row-actions">
-                          <button className="secondary small" onClick={() => setEditingUser(item)}>Editar</button>
-                          {item.id !== user.id && <button className="danger small" onClick={() => deleteUser(item)}>Excluir</button>}
-                        </div></td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {view === "book" && (
-            <form className="form-section" onSubmit={handleCreateBook}>
-              <h2>Adicionar livro</h2>
-              <label>
-                Titulo
-                <input
-                  value={book.title}
-                  onChange={(event) => setBook({ ...book, title: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                Tema
-                <input
-                  value={book.theme}
-                  onChange={(event) => setBook({ ...book, theme: event.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                Preco
-                <input
-                  value={book.price}
-                  onChange={(event) => setBook({ ...book, price: event.target.value })}
-                  required
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                />
-              </label>
-              <label>
-                Quantidade
-                <input
-                  value={book.quantity}
-                  onChange={(event) => setBook({ ...book, quantity: event.target.value })}
-                  required
-                  type="number"
-                  min="0"
-                  step="1"
-                />
-              </label>
-              <button type="submit">Adicionar ao estoque</button>
-            </form>
-          )}
-
-          {view === "stock" && (
-            <div className="stock">
-              <h2>Estoque</h2>
-              <p className="muted">{lowStockCount} livro(s) com {LOW_STOCK_LIMIT} unidades ou menos.</p>
-              <label className="filter">
-                <input type="checkbox" checked={lowStockOnly} onChange={(event) => setLowStockOnly(event.target.checked)} />
-                Mostrar apenas estoque baixo
-              </label>
-              {editingBook && (
-                <form className="form-section" onSubmit={saveBookEdit}>
-                  <h2>Editar livro</h2>
-                  <label>Titulo
-                    <input value={editingBook.title} onChange={(event) => setEditingBook({ ...editingBook, title: event.target.value })} minLength={2} maxLength={160} required />
-                  </label>
-                  <label>Tema
-                    <input value={editingBook.theme} onChange={(event) => setEditingBook({ ...editingBook, theme: event.target.value })} minLength={2} maxLength={120} required />
-                  </label>
-                  <label>Preco
-                    <input value={editingBook.price} onChange={(event) => setEditingBook({ ...editingBook, price: event.target.value })} type="number" min="0.01" step="0.01" required />
-                  </label>
-                  <label>Quantidade
-                    <input value={editingBook.quantity} onChange={(event) => setEditingBook({ ...editingBook, quantity: event.target.value })} type="number" min="0" step="1" required />
-                  </label>
-                  <div className="row-actions">
-                    <button type="submit">Salvar alteracoes</button>
-                    <button className="secondary" type="button" onClick={() => setEditingBook(null)}>Cancelar</button>
-                  </div>
-                </form>
-              )}
-              {visibleBooks.length === 0 ? (
-                <p className="muted">Nenhum livro nesta lista.</p>
-              ) : (
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Titulo</th>
-                        <th>Tema</th>
-                        <th>Preco</th>
-                        <th>Qtd.</th>
-                        <th>Acoes</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleBooks.map((item) => (
-                        <tr key={item.id} className={item.quantity <= LOW_STOCK_LIMIT ? "low-stock" : ""}>
-                          <td>{item.title}</td>
-                          <td>{item.theme}</td>
-                          <td>R$ {Number(item.price).toFixed(2)}</td>
-                          <td>{item.quantity}{item.quantity <= LOW_STOCK_LIMIT ? " ⚠" : ""}</td>
-                          <td><div className="row-actions">
-                            <button className="secondary small" onClick={() => setEditingBook(item)}>Editar</button>
-                            <button className="danger small" onClick={() => deleteBook(item)}>Excluir</button>
-                          </div></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </main>
-    );
-  }
-
-  if (registering) {
-    return (
-      <main className="page">
-        <form className="panel login" onSubmit={handleRegister}>
-          <div>
-            <h1>Criar conta</h1>
-            <p className="lead">Cadastre-se para acessar painel administrativo.</p>
-          </div>
-          <label>Nome
-            <input value={registration.name} onChange={(event) => setRegistration({ ...registration, name: event.target.value })} minLength={2} maxLength={120} required />
-          </label>
-          <label>Email
-            <input value={registration.email} onChange={(event) => setRegistration({ ...registration, email: event.target.value })} type="email" required />
-          </label>
-          <label>Senha
-            <input
-              value={registration["pass" + "word"]}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setRegistration((current) => ({ ...current, ["pass" + "word"]: value }));
-              }}
-              type={showRegistrationPassword ? "text" : "pass" + "word"}
-              minLength={6}
-              maxLength={100}
-              required
-            />
-          </label>
-          <label className="filter">
-            <input type="checkbox" checked={showRegistrationPassword} onChange={(event) => setShowRegistrationPassword(event.currentTarget.checked)} />
-            Mostrar senha
-          </label>
-          {error && <p className="error" role="alert">{error}</p>}
-          <button disabled={loading} type="submit">{loading ? "Cadastrando..." : "Criar conta"}</button>
-          <button className="secondary" type="button" onClick={() => { setRegistering(false); setError(""); }}>Voltar ao login</button>
-        </form>
-      </main>
-    );
-  }
-
   return (
     <main className="page">
-      <form className="panel login" onSubmit={handleLogin}>
-        <div>
-          <h1>Admin Livraria</h1>
-          <p className="lead">Entre com email e senha para acessar o painel.</p>
-        </div>
+      <section className="panel dashboard">
+        <header className="panel-header">
+          <div>
+            <p className="eyebrow">Painel administrativo</p>
+            <h1>Admin Livraria</h1>
+            <p className="lead">Bem-vindo ao painel administrativo, {user.name}.</p>
+          </div>
+          <button className="secondary" onClick={logout}>Sair</button>
+        </header>
 
-        <label>
-          Email
-          <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" />
-        </label>
-
-        <label>
-          Senha
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-          />
-        </label>
+        <nav className="actions" aria-label="Acoes administrativas">
+          <button onClick={openUsers}>Usuarios</button>
+          <button onClick={openBooks}>Estoque</button>
+          <button onClick={() => openUserForm()}>Cadastrar usuario</button>
+          <button onClick={() => openBookForm()}>Adicionar livro</button>
+        </nav>
 
         {message && <p className="success" role="status">{message}</p>}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
 
-        <button disabled={loading} type="submit">
-          {loading ? "Entrando..." : "Entrar"}
-        </button>
-        <button className="secondary" type="button" onClick={() => { setRegistering(true); setError(""); setMessage(""); }}>Criar conta</button>
-      </form>
+        {view === "home" && (
+          <p className="muted">Gerencie usuarios, livros e acompanhe estoque baixo.</p>
+        )}
+
+        {view === "user-form" && (
+          <form className="form-section" onSubmit={saveUser}>
+            <h2>{editingId === null ? "Cadastrar usuario" : "Editar usuario"}</h2>
+            <label>Nome
+              <input value={userForm.name} onChange={(event) => setUserForm({ ...userForm, name: event.target.value })} minLength={2} maxLength={120} required />
+            </label>
+            <label>Email
+              <input value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} type="email" required />
+            </label>
+            {editingId === null && (
+              <label>Senha
+                <input value={userForm.password} onChange={(event) => setUserForm({ ...userForm, password: event.target.value })} type="password" minLength={6} maxLength={100} required />
+              </label>
+            )}
+            <div className="row-actions">
+              <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar usuario"}</button>
+              <button className="secondary" type="button" onClick={openUsers}>Cancelar</button>
+            </div>
+          </form>
+        )}
+
+        {view === "book-form" && (
+          <form className="form-section" onSubmit={saveBook}>
+            <h2>{editingId === null ? "Adicionar livro" : "Editar livro"}</h2>
+            <label>Titulo
+              <input value={bookForm.title} onChange={(event) => setBookForm({ ...bookForm, title: event.target.value })} minLength={2} maxLength={160} required />
+            </label>
+            <label>Tema
+              <input value={bookForm.theme} onChange={(event) => setBookForm({ ...bookForm, theme: event.target.value })} minLength={2} maxLength={120} required />
+            </label>
+            <label>Preco
+              <input value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} type="number" min="0.01" step="0.01" required />
+            </label>
+            <label>Quantidade
+              <input value={bookForm.quantity} onChange={(event) => setBookForm({ ...bookForm, quantity: event.target.value })} type="number" min="0" step="1" required />
+            </label>
+            <div className="row-actions">
+              <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar livro"}</button>
+              <button className="secondary" type="button" onClick={openBooks}>Cancelar</button>
+            </div>
+          </form>
+        )}
+
+        {view === "users" && (
+          <div className="stock">
+            <h2>Usuarios</h2>
+            {users.length === 0 ? <p className="muted">Nenhum usuario cadastrado.</p> : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Nome</th><th>Email</th><th>Acoes</th></tr></thead>
+                  <tbody>{users.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.name}{item.id === user.id ? " (voce)" : ""}</td>
+                      <td>{item.email}</td>
+                      <td><div className="row-actions">
+                        <button className="secondary small" onClick={() => openUserForm(item)}>Editar</button>
+                        {item.id !== user.id && <button className="danger small" onClick={() => deleteUser(item)}>Excluir</button>}
+                      </div></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "books" && (
+          <div className="stock">
+            <h2>Estoque</h2>
+            <p className="muted">{lowStockCount} livro(s) com {LOW_STOCK_LIMIT} unidades ou menos.</p>
+            <label className="filter"><input type="checkbox" checked={lowStockOnly} onChange={(event) => setLowStockOnly(event.target.checked)} /> Mostrar apenas estoque baixo</label>
+            {visibleBooks.length === 0 ? <p className="muted">Nenhum livro nesta lista.</p> : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Titulo</th><th>Tema</th><th>Preco</th><th>Qtd.</th><th>Acoes</th></tr></thead>
+                  <tbody>{visibleBooks.map((item) => (
+                    <tr key={item.id} className={item.quantity <= LOW_STOCK_LIMIT ? "low-stock" : ""}>
+                      <td>{item.title}</td>
+                      <td>{item.theme}</td>
+                      <td>R$ {Number(item.price).toFixed(2)}</td>
+                      <td>{item.quantity}{item.quantity <= LOW_STOCK_LIMIT ? " ⚠" : ""}</td>
+                      <td><div className="row-actions">
+                        <button className="secondary small" onClick={() => openBookForm(item)}>Editar</button>
+                        <button className="danger small" onClick={() => deleteBook(item)}>Excluir</button>
+                      </div></td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
