@@ -16,6 +16,7 @@ export default function App() {
   const [books, setBooks] = useState([]);
   const [users, setUsers] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
+  const [editingBook, setEditingBook] = useState(null);
 
   useEffect(() => {
     if (!token) {
@@ -77,6 +78,7 @@ export default function App() {
     setUsers([]);
     setBooks([]);
     setEditingUser(null);
+    setEditingBook(null);
   }
 
   function authHeaders() {
@@ -199,8 +201,57 @@ export default function App() {
       }
 
       setBook({ title: "", theme: "", price: "", quantity: "" });
-      setMessage("Livro adicionado ao estoque.");
+      setView("stock");
       await loadBooks();
+      setMessage("Livro adicionado ao estoque.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function saveBookEdit(event) {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/books/${editingBook.id}`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          title: editingBook.title,
+          theme: editingBook.theme,
+          price: Number(editingBook.price),
+          quantity: Number(editingBook.quantity),
+        }),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || "Nao foi possivel atualizar livro");
+      }
+      const updated = await response.json();
+      setBooks((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setEditingBook(null);
+      setMessage("Livro atualizado.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function deleteBook(item) {
+    if (!window.confirm(`Excluir livro ${item.title}?`)) return;
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${API_URL}/books/${item.id}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || "Nao foi possivel excluir livro");
+      }
+      setBooks((items) => items.filter((entry) => entry.id !== item.id));
+      setMessage("Livro excluido.");
     } catch (err) {
       setError(err.message);
     }
@@ -208,7 +259,6 @@ export default function App() {
 
   async function loadBooks() {
     setError("");
-    setMessage("");
 
     try {
       const response = await fetch(`${API_URL}/books`, {
@@ -227,6 +277,8 @@ export default function App() {
   }
 
   function openStockView() {
+    setMessage("");
+    setEditingBook(null);
     setView("stock");
     loadBooks();
   }
@@ -382,6 +434,27 @@ export default function App() {
           {view === "stock" && (
             <div className="stock">
               <h2>Estoque</h2>
+              {editingBook && (
+                <form className="form-section" onSubmit={saveBookEdit}>
+                  <h2>Editar livro</h2>
+                  <label>Titulo
+                    <input value={editingBook.title} onChange={(event) => setEditingBook({ ...editingBook, title: event.target.value })} minLength={2} maxLength={160} required />
+                  </label>
+                  <label>Tema
+                    <input value={editingBook.theme} onChange={(event) => setEditingBook({ ...editingBook, theme: event.target.value })} minLength={2} maxLength={120} required />
+                  </label>
+                  <label>Preco
+                    <input value={editingBook.price} onChange={(event) => setEditingBook({ ...editingBook, price: event.target.value })} type="number" min="0.01" step="0.01" required />
+                  </label>
+                  <label>Quantidade
+                    <input value={editingBook.quantity} onChange={(event) => setEditingBook({ ...editingBook, quantity: event.target.value })} type="number" min="0" step="1" required />
+                  </label>
+                  <div className="row-actions">
+                    <button type="submit">Salvar alteracoes</button>
+                    <button className="secondary" type="button" onClick={() => setEditingBook(null)}>Cancelar</button>
+                  </div>
+                </form>
+              )}
               {books.length === 0 ? (
                 <p className="muted">Nenhum livro cadastrado ainda.</p>
               ) : (
@@ -393,6 +466,7 @@ export default function App() {
                         <th>Tema</th>
                         <th>Preco</th>
                         <th>Qtd.</th>
+                        <th>Acoes</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -402,6 +476,10 @@ export default function App() {
                           <td>{item.theme}</td>
                           <td>R$ {Number(item.price).toFixed(2)}</td>
                           <td>{item.quantity}</td>
+                          <td><div className="row-actions">
+                            <button className="secondary small" onClick={() => setEditingBook(item)}>Editar</button>
+                            <button className="danger small" onClick={() => deleteBook(item)}>Excluir</button>
+                          </div></td>
                         </tr>
                       ))}
                     </tbody>
