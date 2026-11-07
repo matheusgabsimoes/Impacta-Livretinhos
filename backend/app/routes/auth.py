@@ -48,6 +48,15 @@ def get_current_user(
     return user
 
 
+def require_roles(*roles: str):
+    def check_role(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso nao permitido")
+        return current_user
+
+    return check_role
+
+
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(user_data: UserCreate, db: Session = Depends(get_db)) -> User:
     existing_user = get_user_by_email(db, user_data.email)
