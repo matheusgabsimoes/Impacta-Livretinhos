@@ -9,7 +9,7 @@ from app.database import Base
 from app.models import User
 from app.routes.books import create_book, delete_book, list_books, update_book
 from app.routes.users import create_user, delete_user, list_users, update_user
-from app.schemas import BookCreate, UserCreate, UserUpdate
+from app.schemas import AdminUserCreate, BookCreate, BookUpdate, UserUpdate
 
 
 class CrudTests(unittest.TestCase):
@@ -17,7 +17,7 @@ class CrudTests(unittest.TestCase):
         self.engine = create_engine("sqlite+pysqlite:///:memory:")
         Base.metadata.create_all(self.engine)
         self.db = Session(self.engine)
-        self.admin = User(name="Admin", email="admin" + "@example.org", hashed_password="hash")
+        self.admin = User(name="Admin", email="admin" + "@example.org", hashed_password="hash", role="admin")
         self.db.add(self.admin)
         self.db.commit()
         self.db.refresh(self.admin)
@@ -28,7 +28,7 @@ class CrudTests(unittest.TestCase):
 
     def test_user_crud_and_guards(self):
         created = create_user(
-            UserCreate.model_validate({"name": "Maria", "email": "maria" + "@example.org", "pass" + "word": "senha123"}),
+            AdminUserCreate.model_validate({"name": "Maria", "email": "maria" + "@example.org", "pass" + "word": "senha123"}),
             self.db,
             self.admin,
         )
@@ -62,11 +62,11 @@ class CrudTests(unittest.TestCase):
 
         updated = update_book(
             created.id,
-            BookCreate(title="Livro revisado", theme="Historia", price="24.50", quantity=0),
+            BookUpdate(title="Livro revisado", theme="Historia", price="24.50"),
             self.db,
             self.admin,
         )
-        self.assertEqual((updated.title, updated.quantity), ("Livro revisado", 0))
+        self.assertEqual((updated.title, updated.quantity), ("Livro revisado", 3))
         with self.assertRaises(ValidationError):
             BookCreate(title="Livro teste", theme="Historia", price="19.90", quantity=-1)
 
