@@ -13,7 +13,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -128,11 +129,22 @@ label {
   gap: 8px;
 }
 
-input {
+input,
+select {
   border: 1px solid #b8b2a8;
   border-radius: 6px;
   padding: 12px 14px;
 }
+
+.stock-filters, .summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.summary-grid p { margin: 0; display: grid; gap: 4px; }
+.summary-grid strong { font-size: 24px; }
+.summary-grid span { color: #52616b; }
 
 input:focus {
   border-color: #795548;

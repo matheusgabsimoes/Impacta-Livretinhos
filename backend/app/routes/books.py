@@ -3,9 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Book, User
-from app.routes.auth import get_current_user
-from app.schemas import BookCreate, BookRead
+from app.models import Book, StockMovement, User
+from app.routes.auth import get_current_user, require_roles
+from app.schemas import BookCreate, BookRead, BookUpdate
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/books", tags=["books"])
 def create_book(
     book_data: BookCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("admin")),
 ) -> Book:
     book = Book(**book_data.model_dump())
     db.add(book)
@@ -34,9 +34,9 @@ def list_books(
 @router.put("/{book_id}", response_model=BookRead)
 def update_book(
     book_id: int,
-    book_data: BookCreate,
+    book_data: BookUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("admin")),
 ) -> Book:
     book = db.get(Book, book_id)
     if book is None:
@@ -53,12 +53,14 @@ def update_book(
 def delete_book(
     book_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("admin")),
 ) -> Response:
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Livro nao encontrado")
 
+    if db.scalar(select(StockMovement.id).where(StockMovement.book_id == book.id).limit(1)):
+        raise HTTPException(status_code=409, detail="Livro possui movimentacoes e nao pode ser excluido")
     db.delete(book)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

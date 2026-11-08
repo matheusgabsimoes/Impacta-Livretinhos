@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const LOW_STOCK_LIMIT = 5;
 const ITEMS_PER_PAGE = 10;
-const EMPTY_USER = { name: "", email: "", password: "" };
-const EMPTY_BOOK = { title: "", theme: "", price: "", quantity: "" };
+const EMPTY_USER = { name: "", email: "", password: "", role: "atendente" };
+const EMPTY_BOOK = { title: "", author: "", theme: "", price: "", quantity: "" };
+const ROLES = ["admin", "estoque", "caixa", "atendente"];
 
 function errorMessage(detail, fallback) {
   if (typeof detail === "string") return detail;
@@ -22,6 +23,17 @@ function Pagination({ page, pageCount, onPageChange }) {
       <button disabled={page === pageCount} type="button" onClick={() => onPageChange(page + 1)}>Próxima</button>
     </nav>
   );
+}
+
+function MovementTable({ movements }) {
+  return <div className="table-wrap"><table>
+    <thead><tr><th>Data</th><th>Livro</th><th>Tipo</th><th>Qtd.</th><th>Motivo</th><th>Usuário</th></tr></thead>
+    <tbody>{movements.map((item) => <tr key={item.id}>
+      <td>{new Date(item.created_at).toLocaleString("pt-BR")}</td><td>{item.book_title}</td>
+      <td>{item.type === "entrada" ? "Entrada" : "Saída"}</td><td>{item.quantity}</td>
+      <td>{item.reason}</td><td>{item.user_name}</td>
+    </tr>)}</tbody>
+  </table></div>;
 }
 
 export default function App() {
@@ -44,6 +56,11 @@ export default function App() {
   const [lowStockOnly, setLowStockOnly] = useState(false);
   const [userPage, setUserPage] = useState(1);
   const [bookPage, setBookPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [theme, setTheme] = useState("");
+  const [summary, setSummary] = useState(null);
+  const [movements, setMovements] = useState([]);
+  const [movement, setMovement] = useState({ book_id: "", type: "entrada", quantity: "", reason: "" });
 
   useEffect(() => {
     if (!token) {
@@ -63,6 +80,11 @@ export default function App() {
         setUser(null);
       });
   }, [token]);
+
+  useEffect(() => {
+    if (!user || view !== "home") return;
+    apiRequest("/summary").then(setSummary).catch((err) => setError(err.message));
+  }, [user, view]);
 
   function clearNotices() {
     setError("");
@@ -165,7 +187,7 @@ export default function App() {
   function openUserForm(item = null) {
     clearNotices();
     setEditingId(item?.id ?? null);
-    setUserForm(item ? { name: item.name, email: item.email, password: "" } : EMPTY_USER);
+    setUserForm(item ? { name: item.name, email: item.email, password: "", role: item.role } : EMPTY_USER);
     setView("user-form");
   }
 
@@ -173,7 +195,7 @@ export default function App() {
     clearNotices();
     setEditingId(item?.id ?? null);
     setBookForm(item
-      ? { title: item.title, theme: item.theme, price: String(item.price), quantity: String(item.quantity) }
+      ? { title: item.title, author: item.author || "", theme: item.theme, price: String(item.price), quantity: String(item.quantity) }
       : EMPTY_BOOK);
     setView("book-form");
   }
@@ -187,7 +209,7 @@ export default function App() {
       const updated = await apiRequest(isEditing ? `/users/${editingId}` : "/users", {
         method: isEditing ? "PUT" : "POST",
         body: JSON.stringify(isEditing
-          ? { name: userForm.name, email: userForm.email }
+          ? { name: userForm.name, email: userForm.email, role: userForm.role }
           : userForm),
       });
       if (isEditing && editingId === user.id) {
@@ -197,6 +219,11 @@ export default function App() {
           return;
         }
         setUser(updated);
+        if (updated.role !== "admin") {
+          setView("home");
+          setMessage("Perfil atualizado.");
+          return;
+        }
       }
       setUsers(isEditing
         ? users.map((item) => item.id === updated.id ? updated : item)
@@ -234,9 +261,10 @@ export default function App() {
         method: isEditing ? "PUT" : "POST",
         body: JSON.stringify({
           title: bookForm.title,
+          author: bookForm.author || null,
           theme: bookForm.theme,
           price: Number(bookForm.price),
-          quantity: Number(bookForm.quantity),
+          ...(!isEditing && { quantity: Number(bookForm.quantity) }),
         }),
       });
       setBooks(isEditing
@@ -263,6 +291,35 @@ export default function App() {
     } catch (err) {
       setError(err.message);
     }
+  }
+
+  async function openMovements() {
+    clearNotices();
+    setView("movements");
+    try {
+      setMovements(await apiRequest("/movements"));
+    } catch (err) { setError(err.message); }
+  }
+
+  function openMovementForm(item, type) {
+    clearNotices();
+    setMovement({ book_id: item.id, book_title: item.title, type, quantity: "", reason: "" });
+    setView("movement-form");
+  }
+
+  async function saveMovement(event) {
+    event.preventDefault();
+    clearNotices();
+    setLoading(true);
+    try {
+      await apiRequest("/movements", { method: "POST", body: JSON.stringify({
+        book_id: movement.book_id, type: movement.type,
+        quantity: Number(movement.quantity), reason: movement.reason.trim(),
+      }) });
+      await openBooks();
+      setMessage("Movimentação registrada.");
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   }
 
   if (!user) {
@@ -327,9 +384,12 @@ export default function App() {
   }
 
   const lowStockCount = books.filter((item) => item.quantity <= LOW_STOCK_LIMIT).length;
-  const visibleBooks = lowStockOnly
-    ? books.filter((item) => item.quantity <= LOW_STOCK_LIMIT)
-    : books;
+  const themes = [...new Set(books.map((item) => item.theme))].sort();
+  const visibleBooks = books.filter((item) =>
+    (!lowStockOnly || item.quantity <= LOW_STOCK_LIMIT) &&
+    (!theme || item.theme === theme) &&
+    (!search || `${item.title} ${item.author || ""}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  );
   const userPageCount = Math.max(1, Math.ceil(users.length / ITEMS_PER_PAGE));
   const bookPageCount = Math.max(1, Math.ceil(visibleBooks.length / ITEMS_PER_PAGE));
   const pagedUsers = users.slice((userPage - 1) * ITEMS_PER_PAGE, userPage * ITEMS_PER_PAGE);
@@ -345,8 +405,9 @@ export default function App() {
             </div>
             <nav className="sidebar-nav" aria-label="Navegação administrativa">
               <button className={view === "home" ? "active" : ""} type="button" onClick={() => { clearNotices(); setView("home"); }}>Início</button>
-              <button className={view === "users" || view === "user-form" ? "active" : ""} type="button" onClick={openUsers}>Usuários</button>
+              {user.role === "admin" && <button className={view === "users" || view === "user-form" ? "active" : ""} type="button" onClick={openUsers}>Usuários</button>}
               <button className={view === "books" || view === "book-form" ? "active" : ""} type="button" onClick={openBooks}>Estoque</button>
+              {user.role === "admin" && <button className={view === "movements" ? "active" : ""} type="button" onClick={openMovements}>Movimentações</button>}
             </nav>
             <button className="secondary logout" type="button" onClick={logout}>Sair</button>
           </aside>
@@ -359,9 +420,31 @@ export default function App() {
             {message && <p className="success" role="status">{message}</p>}
             {error && <p className="error" role="alert">{error}</p>}
 
-            {view === "home" && (
-              <p className="muted">Gerencie usuários, livros e acompanhe estoque baixo.</p>
+            {view === "home" && summary && (
+              <div className="stock">
+                <h2>Resumo do estoque</h2>
+                <div className="summary-grid">
+                  <p><strong>{summary.titles}</strong><span>Títulos</span></p>
+                  <p><strong>{summary.quantity}</strong><span>Exemplares</span></p>
+                  <p><strong>{summary.low_stock}</strong><span>Estoque baixo</span></p>
+                </div>
+                {user.role === "admin" && <><h2>Movimentações recentes</h2>
+                  {summary.recent_movements.length === 0 ? <p className="muted">Nenhuma movimentação.</p> : <MovementTable movements={summary.recent_movements} />}
+                </>}
+              </div>
             )}
+
+            {view === "movements" && <div className="stock"><h2>Histórico de movimentações</h2>
+              {movements.length ? <MovementTable movements={movements} /> : <p className="muted">Nenhuma movimentação.</p>}
+            </div>}
+
+            {view === "movement-form" && <form className="form-section" onSubmit={saveMovement}>
+              <h2>{movement.type === "entrada" ? "Entrada" : "Saída"} de estoque</h2>
+              <p>{movement.book_title}</p>
+              <label>Quantidade<input type="number" min="1" step="1" required value={movement.quantity} onChange={(event) => setMovement({ ...movement, quantity: event.target.value })} /></label>
+              <label>Motivo<input maxLength={255} required value={movement.reason} onChange={(event) => setMovement({ ...movement, reason: event.target.value })} /></label>
+              <div className="row-actions"><button type="submit" disabled={loading}>Registrar</button><button type="button" className="secondary" onClick={openBooks}>Cancelar</button></div>
+            </form>}
 
             {view === "user-form" && (
               <form className="form-section" onSubmit={saveUser}>
@@ -377,6 +460,7 @@ export default function App() {
                 <input value={userForm.password} onChange={(event) => setUserForm({ ...userForm, password: event.target.value })} type="password" minLength={6} maxLength={100} required />
               </label>
             )}
+            <label>Perfil<select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value })}>{ROLES.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
               <div className="row-actions">
                 <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar usuário"}</button>
                 <button className="secondary" type="button" onClick={openUsers}>Cancelar</button>
@@ -393,12 +477,13 @@ export default function App() {
             <label>Tema
               <input value={bookForm.theme} onChange={(event) => setBookForm({ ...bookForm, theme: event.target.value })} minLength={2} maxLength={120} required />
             </label>
+            <label>Autor<input value={bookForm.author} onChange={(event) => setBookForm({ ...bookForm, author: event.target.value })} maxLength={160} /></label>
               <label>Preço
               <input value={bookForm.price} onChange={(event) => setBookForm({ ...bookForm, price: event.target.value })} type="number" min="0.01" step="0.01" required />
             </label>
-            <label>Quantidade
+            {editingId === null && <label>Quantidade inicial
               <input value={bookForm.quantity} onChange={(event) => setBookForm({ ...bookForm, quantity: event.target.value })} type="number" min="0" step="1" required />
-            </label>
+            </label>}
             <div className="row-actions">
               <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar livro"}</button>
               <button className="secondary" type="button" onClick={openBooks}>Cancelar</button>
@@ -415,11 +500,12 @@ export default function App() {
                 {users.length === 0 ? <p className="muted">Nenhum usuário cadastrado.</p> : (
                <div className="table-wrap">
                  <table>
-                  <thead><tr><th>Nome</th><th>Email</th><th>Ações</th></tr></thead>
+                  <thead><tr><th>Nome</th><th>Email</th><th>Perfil</th><th>Ações</th></tr></thead>
                   <tbody>{pagedUsers.map((item) => (
                     <tr key={item.id}>
                       <td>{item.name}{item.id === user.id ? " (você)" : ""}</td>
                       <td>{item.email}</td>
+                      <td>{item.role}</td>
                       <td><div className="row-actions">
                         <button className="secondary small" onClick={() => openUserForm(item)}>Editar</button>
                         {item.id !== user.id && <button className="danger small" onClick={() => deleteUser(item)}>Excluir</button>}
@@ -437,24 +523,30 @@ export default function App() {
           <div className="stock">
             <div className="section-header">
               <h2>Estoque</h2>
-              <button type="button" onClick={() => openBookForm()}>Adicionar livro</button>
+              {user.role === "admin" && <button type="button" onClick={() => openBookForm()}>Adicionar livro</button>}
+            </div>
+            <div className="stock-filters">
+              <label>Buscar por título ou autor<input value={search} onChange={(event) => { setSearch(event.target.value); setBookPage(1); }} /></label>
+              <label>Tema<select value={theme} onChange={(event) => { setTheme(event.target.value); setBookPage(1); }}><option value="">Todos</option>{themes.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
             </div>
             <p className="muted">{lowStockCount} livro(s) com {LOW_STOCK_LIMIT} unidades ou menos.</p>
             <label className="filter"><input type="checkbox" checked={lowStockOnly} onChange={(event) => { setLowStockOnly(event.target.checked); setBookPage(1); }} /> Mostrar apenas estoque baixo</label>
             {visibleBooks.length === 0 ? <p className="muted">Nenhum livro nesta lista.</p> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Título</th><th>Tema</th><th>Preço</th><th>Qtd.</th><th>Ações</th></tr></thead>
+                  <thead><tr><th>Título</th><th>Autor</th><th>Tema</th><th>Preço</th><th>Qtd.</th>{user.role !== "atendente" && <th>Ações</th>}</tr></thead>
                   <tbody>{pagedBooks.map((item) => (
                     <tr key={item.id} className={item.quantity <= LOW_STOCK_LIMIT ? "low-stock" : ""}>
                       <td>{item.title}</td>
+                      <td>{item.author || "—"}</td>
                       <td>{item.theme}</td>
                       <td>R$ {Number(item.price).toFixed(2)}</td>
                       <td>{item.quantity}{item.quantity <= LOW_STOCK_LIMIT ? " ⚠" : ""}</td>
-                      <td><div className="row-actions">
-                        <button className="secondary small" onClick={() => openBookForm(item)}>Editar</button>
-                        <button className="danger small" onClick={() => deleteBook(item)}>Excluir</button>
-                      </div></td>
+                      {user.role !== "atendente" && <td><div className="row-actions">
+                        {user.role === "admin" && <><button className="secondary small" onClick={() => openBookForm(item)}>Editar</button><button className="danger small" onClick={() => deleteBook(item)}>Excluir</button></>}
+                        {["admin", "estoque"].includes(user.role) && <button className="small" onClick={() => openMovementForm(item, "entrada")}>Entrada</button>}
+                        {["admin", "caixa"].includes(user.role) && <button className="small" onClick={() => openMovementForm(item, "saida")}>Saída</button>}
+                      </div></td>}
                     </tr>
                   ))}</tbody>
                 </table>
