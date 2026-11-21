@@ -43,6 +43,11 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6, max_length=100)
+
+
 class BookUpdate(BaseModel):
     title: str = Field(min_length=2, max_length=160)
     author: str | None = Field(default=None, max_length=160)
