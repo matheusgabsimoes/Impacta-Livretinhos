@@ -1,0 +1,81 @@
+@startuml casos-de-uso
+title Livretinhos - Diagrama de Casos de Uso
+
+left to right direction
+skinparam shadowing false
+skinparam dpi 150
+skinparam defaultFontName Arial
+skinparam packageStyle rectangle
+skinparam ArrowColor #333333
+skinparam actor {
+  BackgroundColor #FFE0B2
+  BorderColor #333333
+}
+skinparam usecase {
+  BackgroundColor #E3F0FF
+  BorderColor #333333
+  BackgroundColor<<novo>> #D4F1D4
+  BorderColor<<novo>> #2F5D50
+}
+skinparam note {
+  BackgroundColor #F5F5F5
+  BorderColor #888888
+}
+hide stereotype
+
+actor "Visitante" as Visitante
+actor "Atendente" as Atendente
+actor "Caixa" as Caixa
+actor "Estoque" as Estoque
+actor "Administrador" as Admin
+
+Caixa --|> Atendente
+Estoque --|> Atendente
+Admin --|> Caixa
+Admin --|> Estoque
+
+rectangle "Livretinhos - Livraria" {
+  usecase "Cadastrar-se" as UC_CAD
+  usecase "Entrar" as UC_LOGIN
+  usecase "Alterar senha" as UC_SENHA <<novo>>
+
+  usecase "Consultar estoque\n(buscar, filtrar por tema,\nestoque baixo)" as UC_CONS
+  usecase "Ver resumo do estoque" as UC_RESUMO
+
+  usecase "Registrar entrada" as UC_ENT
+  usecase "Informar fornecedor" as UC_FORN <<novo>>
+  usecase "Registrar saída" as UC_SAI
+  usecase "Validar saldo suficiente" as UC_SALDO
+
+  usecase "Gerenciar livros" as UC_LIVROS
+  usecase "Gerenciar usuários e perfis" as UC_USERS
+  usecase "Gerenciar fornecedores" as UC_FORNS <<novo>>
+  usecase "Consultar histórico\nde movimentações" as UC_HIST
+}
+
+Visitante --> UC_CAD
+Visitante --> UC_LOGIN
+
+Atendente --> UC_SENHA
+Atendente --> UC_CONS
+Atendente --> UC_RESUMO
+
+Estoque --> UC_ENT
+Caixa --> UC_SAI
+
+Admin --> UC_LIVROS
+Admin --> UC_USERS
+Admin --> UC_FORNS
+Admin --> UC_HIST
+
+UC_FORN .> UC_ENT : <<extend>>
+UC_SAI .> UC_SALDO : <<include>>
+
+legend right
+  <back:#D4F1D4>  </back> Novo nesta entrega
+  Perfis herdam do Atendente; o Administrador herda de Caixa e Estoque.
+  Conta nova nasce como Atendente; só o Administrador muda perfis.
+  Informar fornecedor é opcional (Estoque e Administrador).
+endlegend
+
+@enduml
