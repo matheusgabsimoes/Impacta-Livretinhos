@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routes.auth import router as auth_router
 from app.routes.books import router as books_router
+from app.routes.suppliers import router as suppliers_router
 from app.routes.users import router as users_router
 from app.routes.movements import router as movements_router
 from app.routes.movements import movement_rows
@@ -28,6 +29,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(books_router)
 app.include_router(movements_router)
+app.include_router(suppliers_router)
 
 
 @app.get("/summary")

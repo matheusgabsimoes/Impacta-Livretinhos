@@ -1,8 +1,9 @@
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 Role = Literal["admin", "estoque", "caixa", "atendente"]
 
@@ -71,11 +72,42 @@ class BookRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SupplierWrite(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+
+    name: str = Field(min_length=2, max_length=160)
+    cnpj: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, max_length=30)
+
+    @field_validator("cnpj")
+    @classmethod
+    def normalize_cnpj(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        digits = re.sub(r"\D", "", value)
+        if len(digits) != 14:
+            raise ValueError("CNPJ deve ter 14 digitos")
+        return digits
+
+
+class SupplierRead(BaseModel):
+    id: int
+    name: str
+    cnpj: str | None
+    email: str | None
+    phone: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class MovementCreate(BaseModel):
     book_id: int
     type: Literal["entrada", "saida"]
     quantity: int = Field(gt=0)
     reason: str = Field(min_length=1, max_length=255, pattern=r".*\S.*")
+    supplier_id: int | None = None
 
 
 class MovementRead(BaseModel):
@@ -87,4 +119,6 @@ class MovementRead(BaseModel):
     type: Literal["entrada", "saida"]
     quantity: int
     reason: str
+    supplier_id: int | None = None
+    supplier_name: str | None = None
     created_at: datetime
