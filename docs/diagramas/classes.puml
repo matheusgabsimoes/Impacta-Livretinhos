@@ -1,0 +1,105 @@
+@startuml classes
+title Livretinhos - Diagrama de Classes
+
+skinparam shadowing false
+skinparam dpi 150
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Arial
+skinparam roundCorner 0
+skinparam ArrowColor #333333
+skinparam class {
+  BackgroundColor #FFFFCC
+  BorderColor #333333
+  BackgroundColor<<novo>> #D4F1D4
+  BorderColor<<novo>> #2F5D50
+}
+skinparam note {
+  BackgroundColor #F5F5F5
+  BorderColor #888888
+}
+hide enum methods
+hide stereotype
+
+enum Role <<enumeration>> {
+  admin
+  estoque
+  caixa
+  atendente
+}
+
+enum MovementType <<enumeration>> {
+  entrada
+  saida
+}
+
+class User {
+  - id : int
+  - name : String
+  - email : String {unique}
+  - hashed_password : String
+  - role : Role
+  - created_at : DateTime
+  --
+  + autenticar(senha : String) : boolean
+  + alterarSenha(atual : String, nova : String) : void
+}
+
+class Book {
+  - id : int
+  - title : String
+  - author : String [0..1]
+  - theme : String
+  - price : Decimal
+  - quantity : int
+  - created_at : DateTime
+  --
+  + estoqueBaixo() : boolean
+}
+
+class StockMovement {
+  - id : int
+  - type : MovementType
+  - quantity : int
+  - reason : String
+  - created_at : DateTime
+  --
+  + registrar() : void
+}
+
+class Supplier <<novo>> {
+  - id : int
+  - name : String {unique}
+  - cnpj : String [0..1] {unique}
+  - email : String [0..1]
+  - phone : String [0..1]
+  - created_at : DateTime
+}
+
+User -left-> Role : perfil
+StockMovement -down-> MovementType : tipo
+
+User "1" -down- "0..*" StockMovement : registra
+Supplier "0..1" -down- "0..*" StockMovement : fornece
+Book "1" -down- "0..*" StockMovement : movimenta
+
+note right of StockMovement
+  Imutável: não há edição nem exclusão.
+  saida: quantity <= Book.quantity.
+  Só entradas aceitam fornecedor
+  (check ck_movement_supplier_entrada).
+  Livro, usuário e fornecedor com histórico
+  não podem ser excluídos (ON DELETE RESTRICT).
+end note
+
+note bottom of Book
+  estoqueBaixo(): quantity <= 5
+  O saldo só muda por movimentação
+  (exceto na quantidade inicial).
+end note
+
+legend right
+  <back:#D4F1D4>  </back> Novo nesta entrega
+  Alterar senha (User) e Supplier
+endlegend
+
+@enduml

@@ -6,11 +6,18 @@ const ITEMS_PER_PAGE = 10;
 const EMPTY_USER = { name: "", email: "", password: "", role: "atendente" };
 const EMPTY_BOOK = { title: "", author: "", theme: "", price: "", quantity: "" };
 const ROLES = ["admin", "estoque", "caixa", "atendente"];
+const EMPTY_SUPPLIER = { name: "", cnpj: "", email: "", phone: "" };
+const EMPTY_PASSWORD_FORM = { current: "", next: "", confirmation: "" };
 
 function errorMessage(detail, fallback) {
   if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return detail.map((item) => item.msg).join("; ");
+  if (Array.isArray(detail)) return detail.map((item) => item.msg.replace(/^Value error, /, "")).join("; ");
   return fallback;
+}
+
+function formatCnpj(value) {
+  if (!value) return "—";
+  return value.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
 }
 
 function Pagination({ page, pageCount, onPageChange }) {
@@ -27,10 +34,11 @@ function Pagination({ page, pageCount, onPageChange }) {
 
 function MovementTable({ movements }) {
   return <div className="table-wrap"><table>
-    <thead><tr><th>Data</th><th>Livro</th><th>Tipo</th><th>Qtd.</th><th>Motivo</th><th>Usuário</th></tr></thead>
+    <thead><tr><th>Data</th><th>Livro</th><th>Tipo</th><th>Qtd.</th><th>Fornecedor</th><th>Motivo</th><th>Usuário</th></tr></thead>
     <tbody>{movements.map((item) => <tr key={item.id}>
       <td>{new Date(item.created_at).toLocaleString("pt-BR")}</td><td>{item.book_title}</td>
       <td>{item.type === "entrada" ? "Entrada" : "Saída"}</td><td>{item.quantity}</td>
+      <td>{item.supplier_name || "—"}</td>
       <td>{item.reason}</td><td>{item.user_name}</td>
     </tr>)}</tbody>
   </table></div>;
@@ -60,7 +68,11 @@ export default function App() {
   const [theme, setTheme] = useState("");
   const [summary, setSummary] = useState(null);
   const [movements, setMovements] = useState([]);
-  const [movement, setMovement] = useState({ book_id: "", type: "entrada", quantity: "", reason: "" });
+  const [movement, setMovement] = useState({ book_id: "", type: "entrada", quantity: "", reason: "", supplier_id: "" });
+  const [suppliers, setSuppliers] = useState([]);
+  const [supplierForm, setSupplierForm] = useState(EMPTY_SUPPLIER);
+  const [supplierPage, setSupplierPage] = useState(1);
+  const [passwordForm, setPasswordForm] = useState(EMPTY_PASSWORD_FORM);
 
   useEffect(() => {
     if (!token) {
@@ -156,8 +168,11 @@ export default function App() {
     setUser(null);
     setUsers([]);
     setBooks([]);
+    setSuppliers([]);
+    setPasswordForm(EMPTY_PASSWORD_FORM);
     setUserPage(1);
     setBookPage(1);
+    setSupplierPage(1);
     setView("home");
     clearNotices();
   }
@@ -293,6 +308,94 @@ export default function App() {
     }
   }
 
+  async function openSuppliers() {
+    clearNotices();
+    setView("suppliers");
+    setSupplierPage(1);
+    try {
+      setSuppliers(await apiRequest("/suppliers"));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function openSupplierForm(item = null) {
+    clearNotices();
+    setEditingId(item?.id ?? null);
+    setSupplierForm(item
+      ? { name: item.name, cnpj: item.cnpj ? formatCnpj(item.cnpj) : "", email: item.email || "", phone: item.phone || "" }
+      : EMPTY_SUPPLIER);
+    setView("supplier-form");
+  }
+
+  async function saveSupplier(event) {
+    event.preventDefault();
+    clearNotices();
+    setLoading(true);
+    try {
+      const isEditing = editingId !== null;
+      await apiRequest(isEditing ? `/suppliers/${editingId}` : "/suppliers", {
+        method: isEditing ? "PUT" : "POST",
+        body: JSON.stringify({
+          name: supplierForm.name,
+          cnpj: supplierForm.cnpj.trim() || null,
+          email: supplierForm.email.trim() || null,
+          phone: supplierForm.phone.trim() || null,
+        }),
+      });
+      setSuppliers(await apiRequest("/suppliers"));
+      setSupplierPage(1);
+      setView("suppliers");
+      setMessage(isEditing ? "Fornecedor atualizado." : "Fornecedor cadastrado.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteSupplier(item) {
+    if (!window.confirm(`Excluir fornecedor ${item.name}?`)) return;
+    clearNotices();
+    try {
+      await apiRequest(`/suppliers/${item.id}`, { method: "DELETE" });
+      setSuppliers(suppliers.filter((entry) => entry.id !== item.id));
+      setSupplierPage(1);
+      setMessage("Fornecedor excluído.");
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function openPasswordForm() {
+    clearNotices();
+    setPasswordForm(EMPTY_PASSWORD_FORM);
+    setView("password");
+  }
+
+  async function savePassword(event) {
+    event.preventDefault();
+    clearNotices();
+    if (passwordForm.next !== passwordForm.confirmation) {
+      setError("A confirmação não confere com a nova senha.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiRequest("/auth/me/password", {
+        method: "PUT",
+        body: JSON.stringify({ current_password: passwordForm.current, new_password: passwordForm.next }),
+      });
+      setPasswordForm(EMPTY_PASSWORD_FORM);
+      setView("home");
+      setMessage("Senha alterada.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function openMovements() {
     clearNotices();
     setView("movements");
@@ -301,10 +404,15 @@ export default function App() {
     } catch (err) { setError(err.message); }
   }
 
-  function openMovementForm(item, type) {
+  async function openMovementForm(item, type) {
     clearNotices();
-    setMovement({ book_id: item.id, book_title: item.title, type, quantity: "", reason: "" });
+    setMovement({ book_id: item.id, book_title: item.title, type, quantity: "", reason: "", supplier_id: "" });
     setView("movement-form");
+    if (type === "entrada" && ["admin", "estoque"].includes(user.role)) {
+      try {
+        setSuppliers(await apiRequest("/suppliers"));
+      } catch (err) { setError(err.message); }
+    }
   }
 
   async function saveMovement(event) {
@@ -315,6 +423,7 @@ export default function App() {
       await apiRequest("/movements", { method: "POST", body: JSON.stringify({
         book_id: movement.book_id, type: movement.type,
         quantity: Number(movement.quantity), reason: movement.reason.trim(),
+        ...(movement.type === "entrada" && movement.supplier_id && { supplier_id: Number(movement.supplier_id) }),
       }) });
       await openBooks();
       setMessage("Movimentação registrada.");
@@ -392,6 +501,8 @@ export default function App() {
   );
   const userPageCount = Math.max(1, Math.ceil(users.length / ITEMS_PER_PAGE));
   const bookPageCount = Math.max(1, Math.ceil(visibleBooks.length / ITEMS_PER_PAGE));
+  const supplierPageCount = Math.max(1, Math.ceil(suppliers.length / ITEMS_PER_PAGE));
+  const pagedSuppliers = suppliers.slice((supplierPage - 1) * ITEMS_PER_PAGE, supplierPage * ITEMS_PER_PAGE);
   const pagedUsers = users.slice((userPage - 1) * ITEMS_PER_PAGE, userPage * ITEMS_PER_PAGE);
   const pagedBooks = visibleBooks.slice((bookPage - 1) * ITEMS_PER_PAGE, bookPage * ITEMS_PER_PAGE);
 
@@ -408,6 +519,8 @@ export default function App() {
               {user.role === "admin" && <button className={view === "users" || view === "user-form" ? "active" : ""} type="button" onClick={openUsers}>Usuários</button>}
               <button className={view === "books" || view === "book-form" ? "active" : ""} type="button" onClick={openBooks}>Estoque</button>
               {user.role === "admin" && <button className={view === "movements" ? "active" : ""} type="button" onClick={openMovements}>Movimentações</button>}
+              {user.role === "admin" && <button className={view === "suppliers" || view === "supplier-form" ? "active" : ""} type="button" onClick={openSuppliers}>Fornecedores</button>}
+              <button className={view === "password" ? "active" : ""} type="button" onClick={openPasswordForm}>Alterar senha</button>
             </nav>
             <button className="secondary logout" type="button" onClick={logout}>Sair</button>
           </aside>
@@ -441,10 +554,86 @@ export default function App() {
             {view === "movement-form" && <form className="form-section" onSubmit={saveMovement}>
               <h2>{movement.type === "entrada" ? "Entrada" : "Saída"} de estoque</h2>
               <p>{movement.book_title}</p>
+              {movement.type === "entrada" && ["admin", "estoque"].includes(user.role) && <label>Fornecedor (opcional)
+                <select value={movement.supplier_id} onChange={(event) => setMovement({ ...movement, supplier_id: event.target.value })}>
+                  <option value="">Sem fornecedor</option>
+                  {suppliers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>}
               <label>Quantidade<input type="number" min="1" step="1" required value={movement.quantity} onChange={(event) => setMovement({ ...movement, quantity: event.target.value })} /></label>
               <label>Motivo<input maxLength={255} required value={movement.reason} onChange={(event) => setMovement({ ...movement, reason: event.target.value })} /></label>
               <div className="row-actions"><button type="submit" disabled={loading}>Registrar</button><button type="button" className="secondary" onClick={openBooks}>Cancelar</button></div>
             </form>}
+
+            {view === "suppliers" && (
+              <div className="stock">
+                <div className="section-header">
+                  <h2>Fornecedores</h2>
+                  <button type="button" onClick={() => openSupplierForm()}>Cadastrar fornecedor</button>
+                </div>
+                {suppliers.length === 0 ? <p className="muted">Nenhum fornecedor cadastrado.</p> : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead><tr><th>Nome</th><th>CNPJ</th><th>Email</th><th>Telefone</th><th>Ações</th></tr></thead>
+                      <tbody>{pagedSuppliers.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.name}</td>
+                          <td>{formatCnpj(item.cnpj)}</td>
+                          <td>{item.email || "—"}</td>
+                          <td>{item.phone || "—"}</td>
+                          <td><div className="row-actions">
+                            <button className="secondary small" type="button" onClick={() => openSupplierForm(item)}>Editar</button>
+                            <button className="danger small" type="button" onClick={() => deleteSupplier(item)}>Excluir</button>
+                          </div></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                )}
+                <Pagination page={supplierPage} pageCount={supplierPageCount} onPageChange={setSupplierPage} />
+              </div>
+            )}
+
+            {view === "supplier-form" && (
+              <form className="form-section" onSubmit={saveSupplier}>
+                <h2>{editingId === null ? "Cadastrar fornecedor" : "Editar fornecedor"}</h2>
+                <label>Nome
+                  <input value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} minLength={2} maxLength={160} required />
+                </label>
+                <label>CNPJ (opcional)
+                  <input value={supplierForm.cnpj} onChange={(event) => setSupplierForm({ ...supplierForm, cnpj: event.target.value })} maxLength={18} placeholder="00.000.000/0000-00" />
+                </label>
+                <label>Email (opcional)
+                  <input value={supplierForm.email} onChange={(event) => setSupplierForm({ ...supplierForm, email: event.target.value })} type="email" maxLength={255} />
+                </label>
+                <label>Telefone (opcional)
+                  <input value={supplierForm.phone} onChange={(event) => setSupplierForm({ ...supplierForm, phone: event.target.value })} maxLength={30} />
+                </label>
+                <div className="row-actions">
+                  <button disabled={loading} type="submit">{loading ? "Salvando..." : "Salvar fornecedor"}</button>
+                  <button className="secondary" type="button" onClick={openSuppliers}>Cancelar</button>
+                </div>
+              </form>
+            )}
+
+            {view === "password" && (
+              <form className="form-section" onSubmit={savePassword}>
+                <h2>Alterar senha</h2>
+                <label>Senha atual
+                  <input value={passwordForm.current} onChange={(event) => setPasswordForm({ ...passwordForm, current: event.target.value })} type="password" autoComplete="current-password" required />
+                </label>
+                <label>Nova senha
+                  <input value={passwordForm.next} onChange={(event) => setPasswordForm({ ...passwordForm, next: event.target.value })} type="password" autoComplete="new-password" minLength={6} maxLength={100} required />
+                </label>
+                <label>Confirmar nova senha
+                  <input value={passwordForm.confirmation} onChange={(event) => setPasswordForm({ ...passwordForm, confirmation: event.target.value })} type="password" autoComplete="new-password" minLength={6} maxLength={100} required />
+                </label>
+                <div className="row-actions">
+                  <button disabled={loading} type="submit">{loading ? "Salvando..." : "Alterar senha"}</button>
+                  <button className="secondary" type="button" onClick={() => { clearNotices(); setView("home"); }}>Cancelar</button>
+                </div>
+              </form>
+            )}
 
             {view === "user-form" && (
               <form className="form-section" onSubmit={saveUser}>

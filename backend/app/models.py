@@ -29,16 +29,29 @@ class Book(Base):
     created_at = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Supplier(Base):
+    __tablename__ = "suppliers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
+    cnpj: Mapped[str | None] = mapped_column(String(14), unique=True, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_at = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class StockMovement(Base):
     __tablename__ = "stock_movements"
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_movement_quantity_positive"),
         CheckConstraint("type IN ('entrada', 'saida')", name="ck_movement_type"),
+        CheckConstraint("supplier_id IS NULL OR type = 'entrada'", name="ck_movement_supplier_entrada"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id", ondelete="RESTRICT"), nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    supplier_id: Mapped[int | None] = mapped_column(ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(255), nullable=False)

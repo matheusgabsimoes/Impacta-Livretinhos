@@ -31,3 +31,25 @@ docker compose exec -T backend python -m unittest discover -s tests -v
 ```
 
 Caso use um seed SQL local, revise seu conteudo antes de executa-lo: alguns seeds atualizam quantidade e preco de titulos existentes e podem sobrescrever saldos atuais.
+
+## Fornecedores
+
+O administrador cadastra, edita e exclui fornecedores na tela **Fornecedores** (nome obrigatorio e unico; CNPJ, email e telefone opcionais). Ao registrar uma **entrada** de estoque, administrador e estoque podem escolher um fornecedor, e o historico passa a mostrar a coluna Fornecedor. Saidas nao aceitam fornecedor, e fornecedor com movimentacoes nao pode ser excluido. Movimentacoes anteriores a este recurso ficam sem fornecedor.
+
+## Alterar senha
+
+Todo usuario logado troca a propria senha em **Alterar senha**, informando a senha atual e a nova (6 a 100 caracteres, diferente da atual). O token JWT e sem estado: sessoes abertas antes da troca continuam validas ate expirar (60 minutos).
+
+## Diagramas
+
+Em [docs/diagramas](docs/diagramas): diagrama de classes e diagrama de casos de uso, escritos em PlantUML (`.puml`) com os PNG gerados. O que e novo nesta entrega aparece em verde.
+
+![Diagrama de classes](docs/diagramas/classes.png)
+
+![Diagrama de casos de uso](docs/diagramas/casos-de-uso.png)
+
+Para gerar os PNG de novo depois de editar os `.puml` (no WSL, a partir da pasta do projeto):
+
+```sh
+docker run --rm -v "$PWD/docs/diagramas:/data" plantuml/plantuml -charset UTF-8 -tpng /data/classes.puml /data/casos-de-uso.puml
+```
